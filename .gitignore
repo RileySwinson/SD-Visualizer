@@ -1,0 +1,16 @@
+build/
+html/
+*.sdt
+.claude/settings.local.json
+*.o
+*.obj
+*.so
+*.a
+*.dylib
+*.dll
+*.exe
+*.png
+*.csv
+*.ppm
+.cache/
+compile_commands.json
