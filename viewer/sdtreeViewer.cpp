@@ -13,7 +13,7 @@
 #include "../gui/panels/settingsPanel.h"
 #include "../gui/panels/spatialPanel.h"
 #include "../gui/panels/directionalPanel.h"
-#include "../gui/pngExport.h"
+#include "../gui/pfmExport.h"
 #include "../gui/shaders.h"
 
 #include <imgui.h>
@@ -846,18 +846,70 @@ void SDTreeViewer::exportSlotHeatmap(int slotIndex) {
     if (slot.datasetIndex < 0 || slot.nodeIndex < 0) return;
 
     auto& dtree = state.datasets[slot.datasetIndex].nodes[slot.nodeIndex].dTree;
+    if (!dtree) return;
+
+    // Create one PFM per stored distribution.
+    struct PFMOutput { int tilingIdx; string suffix; };
+    
+    vector<PFMOutput> outputs;
+    
+    switch (dtree->kind()) {
+        case CostQuadTree:
+            outputs.push_back({ 0, "radiance" });
+            outputs.push_back({ 1, "costs" });
+            break;
+            
+        case BTC: {
+            int n = dtree->getNumDistributions();
+            
+            for (int i = 0; i < n; ++i) {
+                outputs.push_back({ i, "tile" + to_string(i) });
+            }
+
+            break;
+        }
+
+        case QuadTree:
+        default:
+            outputs.push_back({ -1, "main" });
+            break;
+    }
 
     static float grid[HMAP_RES][HMAP_RES];
-    dtree->fillGrid(grid, state.slotTiling[slotIndex]);
+    const char* datsetName = state.datasets[slot.datasetIndex].name.c_str();
 
-    char filename[256];
-    std::snprintf(filename, 256, "heatmap_%s_node%d.png",
-        state.datasets[slot.datasetIndex].name.c_str(), slot.nodeIndex);
+    // csv records each PFM unscaled [min, max] radiance values inside a directional structure
+    // only the max should be relevant
+    char csvName[256];
+    std::snprintf(csvName, 256, "node%d_%s_ranges.csv", slot.nodeIndex, datsetName);
+    FILE* csv = std::fopen(csvName, "w");
+    if (csv) { 
+        std::fprintf(csv, "filename,min,max\n"); 
+    }
 
-    if (PNGExport::exportGrayscalePNG<HMAP_RES>(filename, grid))
-        std::cout << "Exported: " << filename << std::endl;
-    else
-        std::cerr << "Export failed: " << filename << std::endl;
+    for (auto& v : outputs) {
+        dtree->fillGrid(grid, v.tilingIdx);
+
+        char filename[256];
+        std::snprintf(
+            filename, 256, "node%d_%s_%s.pfm",
+            slot.nodeIndex, v.suffix.c_str(), datsetName
+        );
+
+        float vMin = 0, vMax = 0;
+        if (PFMExport::exportGrayscalePFM<HMAP_RES>(filename, grid, vMin, vMax)) {
+            if (csv) std::fprintf(csv, "%s,%g,%g\n", filename, vMin, vMax);
+            std::cout << "Exported: " << filename
+                      << "  [min=" << vMin << " max=" << vMax << "]" << std::endl;
+        } else {
+            std::cerr << "Export failed: " << filename << std::endl;
+        }
+    }
+
+    if (csv) {
+        std::fclose(csv);
+        std::cout << "Wrote ranges: " << csvName << std::endl;
+    }
 }
 
 // ---- mode / dataset transitions ----

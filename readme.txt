@@ -24,11 +24,10 @@ That the following packages/libraries are installed:
 OpenGL
 GLFW 3.3+
 FLEW
-Eigen3 3.3+ 
-zlib
+Eigen3 3.3+
 
 This install should cover all packages:
-`sudo apt install cmake build-essential libglfw3-dev libglew-dev libeigen3-dev zlib1g-dev libgl-dev`
+`sudo apt install cmake build-essential libglfw3-dev libglew-dev libeigen3-dev libgl-dev`
 
 # Inputs
 

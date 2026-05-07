@@ -9,7 +9,6 @@ find_package(OpenGL REQUIRED)
 find_package(glfw3 3.3 REQUIRED)
 find_package(GLEW REQUIRED)
 find_package(Eigen3 3.3 REQUIRED)
-find_package(ZLIB REQUIRED)
 
 include(FetchContent)
 
@@ -82,4 +81,4 @@ set(VISUALIZER_SOURCES
 
 add_executable(visualizer ${VISUALIZER_SOURCES})
 target_include_directories(visualizer PRIVATE ${CMAKE_SOURCE_DIR})
-target_link_libraries(visualizer PRIVATE imgui_lib Eigen3::Eigen ZLIB::ZLIB)
+target_link_libraries(visualizer PRIVATE imgui_lib Eigen3::Eigen)
