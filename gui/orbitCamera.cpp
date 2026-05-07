@@ -27,10 +27,12 @@ Eigen::Matrix4f OrbitCamera::perspective(float fov, float aspect, float zNear, f
     float f = 1 / std::tan(fov * 0.5f);
     Eigen::Matrix4f P = Eigen::Matrix4f::Zero();
 
-    P(0, 0) = f / aspect; P(1, 1) = f;
+    P(0, 0) = f / aspect; 
+    P(1, 1) = f;
     P(2, 2) = (zFar + zNear) / (zNear - zFar);
     P(2, 3) = (2 * zFar * zNear) / (zNear - zFar);
     P(3, 2) = -1;
+    
     return P;
 }
 

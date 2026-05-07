@@ -4,9 +4,7 @@
 
 #include <variant>
 
-// The mode of the viewer is encoded as a sum type. Mode-specific state lives
-// inside the relevant arm — invalid states (e.g. TotalCompState without a
-// sequence) are unrepresentable.
+// Mode-specific state lives inside the relevant code, and invalid states are unrepresentable.
 //
 // TotalCompState and IterationDiffState are only constructed from a Sequence
 // context; the type itself doesn't enforce that, but SDTreeViewer's

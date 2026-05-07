@@ -42,17 +42,21 @@ void drawLines(
 ) {
     glBindVertexArray(lineVAO);
     glBindBuffer(GL_ARRAY_BUFFER, lineVBO);
-    glBufferData(GL_ARRAY_BUFFER,
-                 points.size() * sizeof(Eigen::Vector3f),
-                 points.data(), GL_DYNAMIC_DRAW);
+    glBufferData(
+        GL_ARRAY_BUFFER,
+        points.size() * sizeof(Eigen::Vector3f),
+        points.data(), GL_DYNAMIC_DRAW
+    );
 
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Eigen::Vector3f), 0);
     glEnableVertexAttribArray(0);
 
     glUseProgram(lineProg);
     glUniformMatrix4fv(glGetUniformLocation(lineProg, "uMVP"), 1, GL_FALSE, mvp.data());
-    glUniform4f(glGetUniformLocation(lineProg, "uColor"),
-                color[0], color[1], color[2], color[3]);
+    glUniform4f(
+        glGetUniformLocation(lineProg, "uColor"),
+        color[0], color[1], color[2], color[3]
+    );
 
     glLineWidth(lineWidth);
     glDrawArrays(GL_LINES, 0, (int)points.size());

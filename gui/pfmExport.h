@@ -33,7 +33,7 @@ namespace PFMExport {
         outMin = vMin;
         outMax = vMax;
 
-        float scale = (vMax > 0.0f) ? (1.0f / vMax) : 1.0f;
+        // float scale = (vMax > 0.0f) ? (1.0f / vMax) : 1.0f;
 
         FILE* result = std::fopen(filename, "wb");
         if (!result) return false;
@@ -43,10 +43,10 @@ namespace PFMExport {
             return false;
         }
 
-        float row[RES];
+        // float row[RES];
         for (int y = 0; y < RES; ++y) {
-            for (int x = 0; x < RES; ++x) row[x] = grid[y][x] * scale;
-            if (std::fwrite(row, sizeof(float), RES, result) != (size_t)RES) {
+            // for (int x = 0; x < RES; ++x) row[x] = grid[y][x] * scale;
+            if (std::fwrite(grid[y], sizeof(float), RES, result) != (size_t)RES) {
                 std::fclose(result);
                 return false;
             }

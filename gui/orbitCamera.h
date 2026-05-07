@@ -2,8 +2,11 @@
 
 #include <Eigen/Dense>
 
-// Orbit camera: rotates around `target` at `distance`, with affine pan offsets.
-class OrbitCamera {
+/**
+ * @brief  Orbit camera rotates around @c target at @c distance , with affine pan offsets.
+ * 
+ */
+ class OrbitCamera {
 public:
     Eigen::Vector3f target{ 0, 0, 0 };
     float           distance  = 3;

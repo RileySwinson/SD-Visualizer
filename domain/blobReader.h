@@ -7,12 +7,11 @@
 
 // Binary blob reader for SDT dump files.
 // Adapted from Muller's reference path-guider code.
-// Reads size-prefixed values: each scalar is preceded by a uint16 declaring sizeof(T).
+// Reads size-prefixed values, so each scalar is preceded by a uint16 declaring sizeof(T).
 class BlobReader {
 public:
     BlobReader(const std::string& fn) : file(fn, std::ios::in | std::ios::binary) {}
 
-    // Length-prefixed string (the header format used by SDT dumps)
     std::string readString() {
         uint32_t len;
         file.read((char*)&len, 4);
@@ -21,7 +20,6 @@ public:
         return r;
     }
 
-    // Reads [uint16 size][T value], asserting size == sizeof(T)
     template <typename T>
     typename std::enable_if<std::is_standard_layout<T>::value, BlobReader&>::type
     operator>>(T& e) {
