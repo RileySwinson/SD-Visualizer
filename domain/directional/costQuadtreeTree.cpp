@@ -3,7 +3,6 @@
 #include <algorithm>
 
 bool CostQuadtreeTree::read(BlobReader& b) {
-    // Header is identical to the plain QuadTree dump.
     uint64_t nn;
     float    ns;
     int      md;
@@ -15,21 +14,23 @@ bool CostQuadtreeTree::read(BlobReader& b) {
     int   ti;
     b >> tf >> ti;
 
-    for (int i = 0; i < 3; ++i) b >> tf;
+    for (int i = 0; i < 3; ++i) {
+        b >> tf;
+    }
 
     if (!b.isValid()) return false;
 
     mNumSamples = (size_t)ns;
     mNodes.resize(nn);
 
-    // Per-node payload differs from plain QT: each quadrant carries an extra
-    // `sumCosts` float between `sum` and `child`.
     for (size_t i = 0; i < mNodes.size(); ++i) {
         auto& n = mNodes[i];
+
         for (int j = 0; j < 4; ++j) {
             for (int k = 0; k < NUM_CHANNELS; ++k) {
                 b >> n.mData[k][j];
             }
+        
             b >> n.mCosts[j];
             b >> n.mChildren[j];
         }
@@ -44,12 +45,24 @@ float CostQuadtreeTree::evalRadiance(float px, float py, int nodeIndex) const {
     int quadrant;
     if (px < 0.5f) {
         px *= 2;
-        if (py < 0.5f) { py *= 2;             quadrant = 0; }
-        else           { py = (py - 0.5f) * 2; quadrant = 1; }
+        if (py < 0.5f) { 
+            py *= 2; 
+            quadrant = 0; 
+        }
+        else { 
+            py = (py - 0.5f) * 2; 
+            quadrant = 1; 
+        }
     } else {
         px = (px - 0.5f) * 2;
-        if (py < 0.5f) { py *= 2;             quadrant = 2; }
-        else           { py = (py - 0.5f) * 2; quadrant = 3; }
+        if (py < 0.5f) { 
+            py *= 2; 
+            quadrant = 2;
+        }
+        else { 
+            py = (py - 0.5f) * 2; 
+            quadrant = 3; 
+        }
     }
 
     if (n.isLeaf(quadrant)) return n.mData[0][quadrant];
@@ -57,19 +70,30 @@ float CostQuadtreeTree::evalRadiance(float px, float py, int nodeIndex) const {
 }
 
 float CostQuadtreeTree::evalCost(float px, float py, int nodeIndex) const {
-    // Costs are raw per-leaf scalars — no PDF normalisation.
     if (nodeIndex < 0 || nodeIndex >= (int)mNodes.size()) return 0;
     auto& n = mNodes[nodeIndex];
 
     int quadrant;
     if (px < 0.5f) {
         px *= 2;
-        if (py < 0.5f) { py *= 2;             quadrant = 0; }
-        else           { py = (py - 0.5f) * 2; quadrant = 1; }
+        if (py < 0.5f) { 
+            py *= 2; 
+            quadrant = 0; 
+        }
+        else { 
+            py = (py - 0.5f) * 2; 
+            quadrant = 1; 
+        }
     } else {
         px = (px - 0.5f) * 2;
-        if (py < 0.5f) { py *= 2;             quadrant = 2; }
-        else           { py = (py - 0.5f) * 2; quadrant = 3; }
+        if (py < 0.5f) { 
+            py *= 2; 
+            quadrant = 2; 
+        }
+        else { 
+            py = (py - 0.5f) * 2; 
+            quadrant = 3; 
+        }
     }
 
     if (n.isLeaf(quadrant)) return n.mCosts[quadrant];
@@ -78,9 +102,11 @@ float CostQuadtreeTree::evalCost(float px, float py, int nodeIndex) const {
 
 float CostQuadtreeTree::evalPDF(float u, float v, int tilingIndex) const {
     if (mNodes.empty()) return 0;
+    
     if (tilingIndex == VARIANT_COSTS) {
         return evalCost(u, v, 0);
     }
+
     if (mNumSamples == 0 || mMean <= 0) return 0;
     float rawEval = evalRadiance(u, v, 0);
     float factor  = 1.0f / ((float)M_PI * mNumSamples);
@@ -106,7 +132,7 @@ void CostQuadtreeTree::collectLeavesRadiance(std::vector<DirLeaf>& out, int node
         Bounds2f newBounds = Bounds2f{ childMinX, childMinY, childMaxX, childMaxY };
 
         if (n.isLeaf(i)) out.push_back({ n.mData[0][i], newBounds });
-        else             collectLeavesRadiance(out, n.mChildren[i], newBounds);
+        else collectLeavesRadiance(out, n.mChildren[i], newBounds);
     }
 }
 
@@ -130,28 +156,32 @@ void CostQuadtreeTree::collectLeavesCosts(std::vector<DirLeaf>& out, int nodeInd
 
         // DirLeaf::radiance carries the cost value when in costs view.
         if (n.isLeaf(i)) out.push_back({ n.mCosts[i], newBounds });
-        else             collectLeavesCosts(out, n.mChildren[i], newBounds);
+        else collectLeavesCosts(out, n.mChildren[i], newBounds);
     }
 }
 
 void CostQuadtreeTree::collectLeaves(std::vector<DirLeaf>& out, int tilingIndex) const {
     if (tilingIndex == VARIANT_COSTS) collectLeavesCosts(out, 0, Bounds2f::unit());
-    else                              collectLeavesRadiance(out, 0, Bounds2f::unit());
+    else collectLeavesRadiance(out, 0, Bounds2f::unit());
 }
 
 void CostQuadtreeTree::fillGrid(float grid[HMAP_RES][HMAP_RES], int tilingIndex) const {
-    for (int y = 0; y < HMAP_RES; ++y)
-        for (int x = 0; x < HMAP_RES; ++x)
+    for (int y = 0; y < HMAP_RES; ++y) {
+        for (int x = 0; x < HMAP_RES; ++x) {
             grid[y][x] = PDF_FLOOR;
+        }
+    }
 
     std::vector<DirLeaf> leaves;
     if (tilingIndex == VARIANT_COSTS) collectLeavesCosts(leaves, 0, Bounds2f::unit());
-    else                              collectLeavesRadiance(leaves, 0, Bounds2f::unit());
+    else collectLeavesRadiance(leaves, 0, Bounds2f::unit());
 
     for (auto& leaf : leaves) {
         Bounds2i px = Bounds2i::fromBounds2f(leaf.bounds, HMAP_RES);
-        for (int y = px.minB; y < px.maxB; ++y)
-            for (int x = px.minA; x < px.maxA; ++x)
+        for (int y = px.minB; y < px.maxB; ++y) {
+            for (int x = px.minA; x < px.maxA; ++x) {
                 grid[y][x] = std::max(leaf.radiance, PDF_FLOOR);
+            }
+        }
     }
 }

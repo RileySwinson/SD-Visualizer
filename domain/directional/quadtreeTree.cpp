@@ -14,12 +14,23 @@ float QTNode::eval(float px, float py, const std::vector<QTNode>& nodes) const {
 
     if (px < 0.5f) {
         px *= 2;
-        if (py < 0.5f) { py *= 2;                quadrant = 0; }
-        else           { py = (py - 0.5f) * 2;    quadrant = 1; }
+        if (py < 0.5f) { 
+            py *= 2; quadrant = 0; 
+        }
+        else { 
+            py = (py - 0.5f) * 2; 
+            quadrant = 1; 
+        }
     } else {
         px = (px - 0.5f) * 2;
-        if (py < 0.5f) { py *= 2;                quadrant = 2; }
-        else           { py = (py - 0.5f) * 2;    quadrant = 3; }
+        if (py < 0.5f) { 
+            py *= 2; 
+            quadrant = 2; 
+        }
+        else { 
+            py = (py - 0.5f) * 2; 
+            quadrant = 3; 
+        }
     }
 
     if (isLeaf(quadrant)) return mData[0][quadrant];
@@ -85,7 +96,7 @@ void QuadtreeTree::collectLeavesQT(std::vector<DirLeaf>& out, int nodeIndex, Bou
         Bounds2f newBounds = Bounds2f{ childMinX, childMinY, childMaxX, childMaxY };
 
         if (n.isLeaf(i)) out.push_back({ n.mData[0][i], newBounds });
-        else             collectLeavesQT(out, n.mChildren[i], newBounds);
+        else collectLeavesQT(out, n.mChildren[i], newBounds);
     }
 }
 
@@ -94,17 +105,21 @@ void QuadtreeTree::collectLeaves(std::vector<DirLeaf>& out, int /*distributionIn
 }
 
 void QuadtreeTree::fillGrid(float grid[HMAP_RES][HMAP_RES], int /*distributionIndex*/) const {
-    for (int y = 0; y < HMAP_RES; ++y)
-        for (int x = 0; x < HMAP_RES; ++x)
+    for (int y = 0; y < HMAP_RES; ++y) {
+        for (int x = 0; x < HMAP_RES; ++x) {
             grid[y][x] = PDF_FLOOR;
+        }
+    }
 
     std::vector<DirLeaf> leaves;
     collectLeavesQT(leaves, 0, Bounds2f::unit());
 
     for (auto& leaf : leaves) {
         Bounds2i px = Bounds2i::fromBounds2f(leaf.bounds, HMAP_RES);
-        for (int y = px.minB; y < px.maxB; ++y)
-            for (int x = px.minA; x < px.maxA; ++x)
+        for (int y = px.minB; y < px.maxB; ++y) {
+            for (int x = px.minA; x < px.maxA; ++x) {
                 grid[y][x] = std::max(leaf.radiance, PDF_FLOOR);
+            }
+        }
     }
 }
