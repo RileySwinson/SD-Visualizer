@@ -278,7 +278,8 @@ void SDTreeViewer::buildSlotTexture(int slotIndex, const shared_ptr<IDirectional
                 float u = ((float)x + 0.5f) / HMAP_RES;
                 float v = ((float)y + 0.5f) / HMAP_RES;
                 float val = dtree->evalPDF(u, v, tilingIdx);
-                if (dtree->isBTC()) val *= EquirectToEqualArea::jacobian(v);
+                // AI: equal-area v has a constant solid-angle element, so weight by 4pi instead of the equirect jacobian
+                if (dtree->isBTC()) val *= CylindricalEqualArea::SOLID_ANGLE_FACTOR;
                 pdfIntegral += val;
             }
         }

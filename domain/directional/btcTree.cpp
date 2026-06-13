@@ -64,9 +64,9 @@ float BtcTree::evalPDF(float u, float v, int tilingIndex) const {
 
         if (xRange <= 0 || yRange <= 0) continue;
 
-        float warpedV     = EquirectToEqualArea::inverse(v);
+        // AI: v is already the equal-area polar coord (matches the quadtree and toDirection)
         float normalizedX = (u - tiling.domain.minA) / xRange;
-        float normalizedY = (warpedV - tiling.domain.minB) / yRange;
+        float normalizedY = (v - tiling.domain.minB) / yRange;
 
         if (normalizedX < 0 || normalizedX >= 1 || normalizedY < 0 || normalizedY >= 1) continue;
 
@@ -95,7 +95,8 @@ float BtcTree::evalPDF(float u, float v, int tilingIndex) const {
             if (hSplit) {
                 firstChild = (u < mid);
             } else {
-                firstChild = (v < EquirectToEqualArea::forward(mid));
+                // AI: compare equal-area v directly against the equal-area split midpoint
+                firstChild = (v < mid);
             }
 
             if (firstChild) {
@@ -148,11 +149,8 @@ void BtcTree::traverseTileLeaves(
         float area    = EquirectToEqualArea::solidAngleArea(warpedBounds);
         float density = (area > 0 && mLeafSum > 0) ? (t.accRad / area) / mLeafSum : PDF_FLOOR;
 
-        // Convert warped v to equirectangular v for display bounds.
-        float equirectMinV = EquirectToEqualArea::forward(warpedBounds.minB);
-        float equirectMaxV = EquirectToEqualArea::forward(warpedBounds.maxB);
-
-        out.push_back({ density, Bounds2f{ warpedBounds.minA, equirectMinV, warpedBounds.maxA, equirectMaxV } });
+        // AI: report equal-area v directly so BTC leaves share the quadtree's coordinate system
+        out.push_back({ density, Bounds2f{ warpedBounds.minA, warpedBounds.minB, warpedBounds.maxA, warpedBounds.maxB } });
 
     } else if (t.splitDirection == 0) {
         float midX = local.midA();
