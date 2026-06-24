@@ -26,4 +26,8 @@ struct Slot {
     float integral = 0;
     bool isIntegralValid = true;
     int numTilings = 0;
+
+    // Rendered grid dimensions (drives on-screen aspect; 2:1 for spherical).
+    int gridW = 0;
+    int gridH = 0;
 };

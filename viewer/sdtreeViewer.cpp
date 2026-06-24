@@ -8,6 +8,9 @@
 #include "../domain/compute/rasterize.h"
 #include "../domain/compute/pointCloudBuild.h"
 #include "../domain/compute/structureCompare.h"
+#include "../domain/compute/heatGrid.h"
+#include "../domain/directional/parameterSpace.h"
+#include "../domain/directional/directionalField.h"
 #include "../gui/geometryRenderer.h"
 #include "../gui/panels/sequenceBar.h"
 #include "../gui/panels/settingsPanel.h"
@@ -248,65 +251,121 @@ void SDTreeViewer::rebuildPointCloud() {
     cam.distance = (sceneMax - sceneMin).norm() * 1.2f;
 }
 
-void SDTreeViewer::buildSlotTexture(int slotIndex, const shared_ptr<IDirectional>& dtree) {
-    static float   grid[HMAP_RES][HMAP_RES];
-    static uint8_t pixels[HMAP_RES * HMAP_RES * 4];
-    static uint8_t cbarPixels[256 * 4];
+// Rasterise a directional distribution into @p grid, sized and warped for the
+// chosen parameter space. BTC has no single leaf set (averaged mode), so it is
+// sampled via evalPDF in canonical equal-area coords; the quadtree-style caches
+// paint their leaves, warped into the target space.
+static void fillSpaceGrid(
+    const shared_ptr<IDirectional>& dtree,
+    int tilingIdx,
+    ParameterSpace space,
+    HeatGrid& grid
+) {
+    auto dims = parameterSpaceDims(space, HMAP_RES);
+    grid.resize(dims.first, dims.second, PDF_FLOOR);
+    if (!dtree) return;
 
-    auto& slot       = state.slots[slotIndex];
-    int   tilingIdx  = state.slotTiling[slotIndex];
+    if (space == ParameterSpace::Spherical) {
+        // Non-separable reprojection: each pixel maps to a direction, looked up
+        // in the distribution. Leaf caches keep their per-leaf radiance via a
+        // point lookup; BTC samples its PDF.
+        bool btc = (dtree->kind() == BTC);
+        vector<DirLeaf> leaves;
+        if (!btc) dtree->collectLeaves(leaves, tilingIdx);
 
-    if (dtree) {
-        dtree->fillGrid(grid, tilingIdx);
-    } else {
-        for (int y = 0; y < HMAP_RES; ++y) {
-            for (int x = 0; x < HMAP_RES; ++x) {
-                grid[y][x] = PDF_FLOOR;
+        for (int y = 0; y < grid.h; ++y) {
+            for (int x = 0; x < grid.w; ++x) {
+                Eigen::Vector2f uv = parameterSpacePixelToDump(
+                    space, ((float)x + 0.5f) / grid.w, ((float)y + 0.5f) / grid.h);
+                float val;
+                if (btc) {
+                    val = dtree->evalPDF(uv.x(), uv.y(), tilingIdx);
+                } else {
+                    auto* lf = findLeafUV(leaves, uv.x(), uv.y());
+                    val = lf ? lf->radiance : PDF_FLOOR;
+                }
+                grid.at(x, y) = max(val, PDF_FLOOR);
             }
         }
+        return;
     }
 
+    if (dtree->kind() == BTC) {
+        for (int y = 0; y < grid.h; ++y) {
+            float vCanon = parameterSpaceVToCanonical(space, ((float)y + 0.5f) / grid.h);
+            for (int x = 0; x < grid.w; ++x) {
+                float u = ((float)x + 0.5f) / grid.w;
+                grid.at(x, y) = max(dtree->evalPDF(u, vCanon, tilingIdx), PDF_FLOOR);
+            }
+        }
+    } else {
+        DirectionalField field;
+        dtree->collectLeaves(field.leaves, tilingIdx);
+        field.space = dtree->defaultSpace();
+        paintLeaves(field.toParameterSpace(space).leaves, grid, PDF_FLOOR);
+    }
+}
+
+void SDTreeViewer::buildSlotTexture(int slotIndex, const shared_ptr<IDirectional>& dtree) {
+    static HeatGrid             grid;
+    static vector<uint8_t>      pixels;
+    static uint8_t              cbarPixels[256 * 4];
+
+    auto&          slot      = state.slots[slotIndex];
+    int            tilingIdx = state.slotTiling[slotIndex];
+    ParameterSpace space     = state.flags.paramSpace;
+
+    fillSpaceGrid(dtree, tilingIdx, space, grid);
+
     // The integral check (PDF ~= 1 over the sphere) only applies when the
-    // grid we just rasterised is a probability density. Cost view holds raw
-    // per-leaf scalars, so we skip the check there.
+    // distribution is a probability density. Cost view holds raw per-leaf
+    // scalars, so we skip the check there. It is evaluated as a true solid-angle
+    // integral, so it holds in every parameter space.
     bool isCostsView = (dtree && dtree->kind() == CostQuadTree && tilingIdx == 1);
 
     float pdfIntegral = 0;
     if (dtree && !isCostsView) {
-        for (int y = 0; y < HMAP_RES; ++y) {
-            for (int x = 0; x < HMAP_RES; ++x) {
-                float u = ((float)x + 0.5f) / HMAP_RES;
-                float v = ((float)y + 0.5f) / HMAP_RES;
-                float val = dtree->evalPDF(u, v, tilingIdx);
-                // AI: equal-area v has a constant solid-angle element, so weight by 4pi instead of the equirect jacobian
-                if (dtree->isBTC()) val *= CylindricalEqualArea::SOLID_ANGLE_FACTOR;
-                pdfIntegral += val;
+        for (int y = 0; y < grid.h; ++y) {
+            float fy     = ((float)y + 0.5f) / grid.h;
+            float dOmega = parameterSpaceSolidAngleElement(space, fy, grid.w, grid.h);
+            for (int x = 0; x < grid.w; ++x) {
+                Eigen::Vector2f uv = parameterSpacePixelToDump(
+                    space, ((float)x + 0.5f) / grid.w, fy);
+                float val = dtree->evalPDF(uv.x(), uv.y(), tilingIdx);
+                // Quadtree caches normalise per unit equal-area UV; rescale to a
+                // per-steradian density so the solid-angle integral is comparable.
+                float directionPdf = dtree->isBTC()
+                    ? val : (val / CylindricalEqualArea::SOLID_ANGLE_FACTOR);
+                pdfIntegral += directionPdf * dOmega;
             }
         }
-
-        pdfIntegral /= (HMAP_RES * HMAP_RES);
     }
 
     slot.integral        = pdfIntegral;
     slot.isIntegralValid = isCostsView || (std::fabs(pdfIntegral - 1.0f) <= 0.05f) || !dtree;
 
+    // Colour-scale range. FromZero anchors the low end at radiance 0 so
+    // brightness is absolute and comparable; AutoRange stretches to [min, max].
     float vMin = 1e30f, vMax = -1e30f;
-    for (int y = 0; y < HMAP_RES; ++y) {
-        for (int x = 0; x < HMAP_RES; ++x) {
-            vMin = min(vMin, grid[y][x]);
-            vMax = max(vMax, grid[y][x]);
-        }
+    for (float v : grid.data) { vMin = min(vMin, v); vMax = max(vMax, v); }
+
+    if (state.flags.heatmapScale == HeatmapScale::FromZero) {
+        vMin = 0.0f;
+        if (vMax <= 0.0f) vMax = PDF_FLOOR * 10;
+    } else if (vMin >= vMax) {
+        vMax = vMin * 10;
     }
 
-    if (vMin >= vMax) vMax = vMin * 10;
-    slot.vMin = vMin;
-    slot.vMax = vMax;
+    slot.vMin  = vMin;
+    slot.vMax  = vMax;
+    slot.gridW = grid.w;
+    slot.gridH = grid.h;
 
     auto& colormap = slot.useKL ? CMAP_KL : CMAP_PDF;
 
     buildHeatmapPixels(grid, colormap, pixels, slot.vMin, slot.vMax);
     glBindTexture(GL_TEXTURE_2D, slotTex[slotIndex]);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, HMAP_RES, HMAP_RES, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, grid.w, grid.h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
 
     buildColorbarPixels(colormap, cbarPixels, 256);
     glBindTexture(GL_TEXTURE_2D, slotCbar[slotIndex]);
@@ -315,39 +374,77 @@ void SDTreeViewer::buildSlotTexture(int slotIndex, const shared_ptr<IDirectional
 
 void SDTreeViewer::buildKL(int slotIndex, const vector<DirLeaf>& leavesA, const vector<DirLeaf>& leavesB)
 {
-    static float   gridA[HMAP_RES][HMAP_RES];
-    static float   gridB[HMAP_RES][HMAP_RES];
-    static float   gridKL[HMAP_RES][HMAP_RES];
-    static uint8_t pixels[HMAP_RES * HMAP_RES * 4];
-    static uint8_t cbarPixels[256 * 4];
+    static HeatGrid        gridA, gridB, gridKL;
+    static vector<uint8_t> pixels;
+    static uint8_t         cbarPixels[256 * 4];
 
-    rasterizeLeavesPDF(leavesA, gridA);
-    rasterizeLeavesPDF(leavesB, gridB);
+    // Leaves arrive in the structures' native (equal-area) space; warp both to
+    // the active parameter space so the KL map matches the heatmaps beside it.
+    ParameterSpace space = state.flags.paramSpace;
+    auto dims = parameterSpaceDims(space, HMAP_RES);
+
+    gridA.resize(dims.first, dims.second);
+    gridB.resize(dims.first, dims.second);
+    gridKL.resize(dims.first, dims.second);
+
+    // Build a normalised PDF grid for one node's native (equal-area) leaves in
+    // the active space. Quadtree/BTC use the separable leaf warp; Spherical
+    // reprojects each pixel through the spherical mapping.
+    auto fillPdf = [&](const vector<DirLeaf>& nativeLeaves, HeatGrid& g) {
+        if (space != ParameterSpace::Spherical) {
+            rasterizeLeavesPDF(
+                DirectionalField{ nativeLeaves, ParameterSpace::Quadtree }
+                    .toParameterSpace(space).leaves, g);
+            return;
+        }
+        float total = 0;
+        for (auto& l : nativeLeaves) total += max(l.radiance, PDF_FLOOR);
+        if (total < PDF_FLOOR) total = PDF_FLOOR;
+
+        for (int y = 0; y < g.h; ++y)
+            for (int x = 0; x < g.w; ++x) {
+                Eigen::Vector2f uv = parameterSpacePixelToDump(
+                    space, ((float)x + 0.5f) / g.w, ((float)y + 0.5f) / g.h);
+                auto* lf = findLeafUV(nativeLeaves, uv.x(), uv.y());
+                float area = (lf && lf->bounds.area() > 0) ? lf->bounds.area() : 1.f;
+                g.at(x, y) = lf ? (max(lf->radiance, PDF_FLOOR) / total) / area : PDF_FLOOR;
+            }
+
+        float sum = 0;
+        for (float v : g.data) sum += v;
+        sum /= (float)(g.w * g.h);
+        if (sum > 0) for (float& v : g.data) v /= sum;
+    };
+
+    fillPdf(leavesA, gridA);
+    fillPdf(leavesB, gridB);
 
     float klMax   = 1e-6f;
     float klTotal = 0;
 
-    for (int y = 0; y < HMAP_RES; ++y) {
-        for (int x = 0; x < HMAP_RES; ++x) {
-            float a  = gridA[y][x];
-            float b  = gridB[y][x];
+    for (int y = 0; y < gridKL.h; ++y) {
+        for (int x = 0; x < gridKL.w; ++x) {
+            float a  = gridA.at(x, y);
+            float b  = gridB.at(x, y);
             float kl = a * std::log(a / b) + b * std::log(b / a);
             if (!std::isfinite(kl) || kl < 1e-6f) kl = 1e-6f;
-            gridKL[y][x] = kl;
+            gridKL.at(x, y) = kl;
             klMax  = max(klMax, kl);
             klTotal += kl;
         }
     }
-    klTotal /= (float)(HMAP_RES * HMAP_RES);
+    klTotal /= (float)(gridKL.w * gridKL.h);
 
     auto& slot = state.slots[slotIndex];
     slot.vMin  = 1e-6f;
     slot.vMax  = (klMax <= slot.vMin * 10) ? slot.vMin * 10 : klMax;
     slot.useKL = true;
+    slot.gridW = gridKL.w;
+    slot.gridH = gridKL.h;
 
     buildHeatmapPixels(gridKL, CMAP_KL, pixels, slot.vMin, slot.vMax);
     glBindTexture(GL_TEXTURE_2D, slotTex[slotIndex]);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, HMAP_RES, HMAP_RES, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, gridKL.w, gridKL.h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
 
     buildColorbarPixels(CMAP_KL, cbarPixels, 256);
     glBindTexture(GL_TEXTURE_2D, slotCbar[slotIndex]);
@@ -861,12 +958,11 @@ void SDTreeViewer::exportSlotHeatmap(int slotIndex) {
             break;
             
         case BTC: {
-            int n = dtree->getNumDistributions();
-            
-            for (int i = 0; i < n; ++i) {
-                outputs.push_back({ i, "tile" + to_string(i) });
-            }
-
+            // Export whichever tiling is currently selected for this slot
+            // (-1 = averaged), matching what's on screen.
+            int sel = state.slotTiling[slotIndex];
+            if (sel < 0) outputs.push_back({ -1, "avg" });
+            else         outputs.push_back({ sel, "tile" + to_string(sel + 1) });
             break;
         }
 
@@ -876,8 +972,9 @@ void SDTreeViewer::exportSlotHeatmap(int slotIndex) {
             break;
     }
 
-    static float grid[HMAP_RES][HMAP_RES];
-    const char* datsetName = state.datasets[slot.datasetIndex].name.c_str();
+    static HeatGrid grid;
+    ParameterSpace  space      = state.flags.paramSpace;
+    const char*     datsetName = state.datasets[slot.datasetIndex].name.c_str();
 
     // csv records each PFM unscaled [min, max] radiance values inside a directional structure
     // only the max should be relevant
@@ -889,7 +986,7 @@ void SDTreeViewer::exportSlotHeatmap(int slotIndex) {
     }
 
     for (auto& v : outputs) {
-        dtree->fillGrid(grid, v.tilingIdx);
+        fillSpaceGrid(dtree, v.tilingIdx, space, grid);
 
         char filename[256];
         std::snprintf(
@@ -898,7 +995,7 @@ void SDTreeViewer::exportSlotHeatmap(int slotIndex) {
         );
 
         float vMin = 0, vMax = 0;
-        if (PFMExport::exportGrayscalePFM<HMAP_RES>(filename, grid, vMin, vMax)) {
+        if (PFMExport::exportGrayscalePFM(filename, grid.data.data(), grid.w, grid.h, vMin, vMax)) {
             if (csv) std::fprintf(csv, "%s,%g,%g\n", filename, vMin, vMax);
             std::cout << "Exported: " << filename
                       << "  [min=" << vMin << " max=" << vMax << "]" << std::endl;
@@ -911,6 +1008,63 @@ void SDTreeViewer::exportSlotHeatmap(int slotIndex) {
         std::fclose(csv);
         std::cout << "Wrote ranges: " << csvName << std::endl;
     }
+}
+
+static float oneSigFig(float v) {
+    if (v == 0.0f || !std::isfinite(v)) return 0.0f;
+    float mag = std::pow(10.0f, std::floor(std::log10(std::fabs(v))));
+    return std::round(v / mag) * mag;
+}
+
+void SDTreeViewer::exportSphericalCamera() {
+    if (!state.isMode<NormalState>()) return;
+
+    int selA = state.getSelectedCellA();
+    int selB = state.getSelectedCellB();
+    if (selA < 0 || selB >= 0) return;
+
+    auto& dataset = state.datasets[state.activeDataset];
+    if (selA >= (int)dataset.nodes.size()) return;
+
+    Eigen::Vector3f p = dataset.nodes[selA].pos;
+
+    char filename[256];
+    std::snprintf(
+        filename, sizeof(filename), "%g-%g-%g-sphericalCam-%s.xml",
+        oneSigFig(p.x()), oneSigFig(p.y()), oneSigFig(p.z()),
+        dataset.name.c_str()
+    );
+
+    FILE* f = std::fopen(filename, "w");
+    if (!f) {
+        std::cerr << "Spherical camera export failed: " << filename << std::endl;
+        return;
+    }
+
+    std::fprintf(f,
+        "<sensor type=\"spherical\">\n"
+        "    <transform name=\"toWorld\">\n"
+        "        <lookat origin=\"%g, %g, %g\" target=\"%g, %g, %g\" up=\"0, 0, 1\"/>\n"
+        "    </transform>\n"
+        "\n"
+        "    <film type=\"hdrfilm\">\n"
+        "        <integer name=\"width\" value=\"1024\"/>\n"
+        "        <integer name=\"height\" value=\"512\"/>\n"
+        "        <string name=\"pixelFormat\" value=\"rgb\"/>\n"
+        "        <boolean name=\"banner\" value=\"false\"/>\n"
+        "        <rfilter type=\"box\"/>\n"
+        "    </film>\n"
+        "\n"
+        "    <sampler type=\"independent\">\n"
+        "        <integer name=\"sampleCount\" value=\"256\"/>\n"
+        "    </sampler>\n"
+        "</sensor>\n",
+        p.x(), p.y(), p.z(),
+        p.x() + 1.0f, p.y(), p.z()
+    );
+
+    std::fclose(f);
+    std::cout << "Exported spherical camera: " << filename << std::endl;
 }
 
 // ---- mode / dataset transitions ----
@@ -1153,7 +1307,11 @@ void SDTreeViewer::inspectBin(int slotIdx, float u, float v) {
     auto& slot = state.slots[slotIdx];
     if (slot.dirType == BTC && state.slotTiling[slotIdx] < 0) return;
 
-    auto* leaf = findLeafUV(slot.leaves, u, v);
+    // slot.leaves are native (equal-area); map the display-space click into them.
+    ParameterSpace  space = state.flags.paramSpace;
+    Eigen::Vector2f uv    = parameterSpacePixelToDump(space, u, v);
+
+    auto* leaf = findLeafUV(slot.leaves, uv.x(), uv.y());
     if (!leaf) return;
 
     float area = (leaf->bounds.maxA - leaf->bounds.minA)
@@ -1161,10 +1319,16 @@ void SDTreeViewer::inspectBin(int slotIdx, float u, float v) {
     float totalNodeRad = 0;
     for (auto& l : slot.leaves) totalNodeRad += max(l.radiance, 0.f);
     float pct = (totalNodeRad > 0) ? leaf->radiance / totalNodeRad * 100 : 0;
-    state.insp = { leaf->radiance,
-                   { leaf->bounds.minA, leaf->bounds.minB,
-                     leaf->bounds.maxA, leaf->bounds.maxB },
-                   area, pct, slotIdx, true };
+
+    // Report leaf bounds in display space for the overlay. The separable spaces
+    // map a leaf to an axis-aligned rect; spherical does not, so the overlay is
+    // suppressed (panel) and we report the native bounds for reference.
+    Bounds2f db = (space == ParameterSpace::Spherical)
+        ? leaf->bounds
+        : DirectionalField{ { *leaf }, ParameterSpace::Quadtree }
+              .toParameterSpace(space).leaves[0].bounds;
+
+    state.insp = { leaf->radiance, db, area, pct, slotIdx, true };
 }
 
 // ---- partial compare ----

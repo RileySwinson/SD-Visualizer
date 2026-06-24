@@ -57,6 +57,7 @@ set(VISUALIZER_SOURCES
     # Per-structure directional readers + interface
     domain/directional/btcTree.cpp
     domain/directional/costQuadtreeTree.cpp
+    domain/directional/directionalField.cpp
     domain/directional/directionalLoader.cpp
     domain/directional/quadtreeTree.cpp
 

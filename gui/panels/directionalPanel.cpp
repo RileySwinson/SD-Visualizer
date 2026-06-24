@@ -3,6 +3,7 @@
 #include "../../viewer/sdtreeViewer.h"
 #include "../../globals/uiColors.h"
 #include "../../domain/projection.h"
+#include "../../domain/directional/parameterSpace.h"
 
 #include <imgui.h>
 
@@ -126,33 +127,41 @@ void renderDirectionalPanel(SDTreeViewer& viewer) {
 
         ImGui::TextWrapped("%s", slot.title.c_str());
 
+        // The active parameter space sets the image aspect (2:1 for spherical).
+        float aspect = (slot.gridH > 0) ? (float)slot.gridW / (float)slot.gridH : 1.0f;
+        float drawH  = hmSide;
+        float drawW  = hmSide * aspect;
+        float maxW   = max(avail.x - cbarW - labelW - 20, 60.f);
+        if (drawW > maxW) { drawW = maxW; drawH = drawW / aspect; }
+
         ImVec2 imgPos = ImGui::GetCursorScreenPos();
         ImGui::Image((ImTextureID)(intptr_t)viewer.slotTex[si].handle(),
-                     { hmSide, hmSide }, { 0, 1 }, { 1, 0 });
+                     { drawW, drawH }, { 0, 1 }, { 1, 0 });
 
         if (state.insp.valid && state.insp.slotIndex == si
+         && state.flags.paramSpace != ParameterSpace::Spherical
          && !(slot.dirType == BTC && state.slotTiling[si] < 0))
         {
-            ImVec2 dMin = { imgPos.x + state.insp.bounds.minA * hmSide,
-                            imgPos.y + (1 - state.insp.bounds.maxB) * hmSide };
-            ImVec2 dMax = { imgPos.x + state.insp.bounds.maxA * hmSide,
-                            imgPos.y + (1 - state.insp.bounds.minB) * hmSide };
+            ImVec2 dMin = { imgPos.x + state.insp.bounds.minA * drawW,
+                            imgPos.y + (1 - state.insp.bounds.maxB) * drawH };
+            ImVec2 dMax = { imgPos.x + state.insp.bounds.maxA * drawW,
+                            imgPos.y + (1 - state.insp.bounds.minB) * drawH };
             ImGui::GetWindowDrawList()->AddRect(dMin, dMax,
                 IM_COL32(255, 255, 255, 255), 0, 0, 2);
         }
 
         if (state.kl.isActive && (si == state.kl.slotA || si == state.kl.slotB)) {
             ImGui::GetWindowDrawList()->AddRect(imgPos,
-                { imgPos.x + hmSide, imgPos.y + hmSide },
+                { imgPos.x + drawW, imgPos.y + drawH },
                 IM_COL32(0, 221, 255, 255), 0, 0, 3);
         }
 
         // Hover ray: continuous per-frame; mutate directly.
         float hu, hv;
-        if (ImGui::IsItemHovered() && viewer.heatmapUV(imgPos, { hmSide, hmSide }, hu, hv)) {
+        if (ImGui::IsItemHovered() && viewer.heatmapUV(imgPos, { drawW, drawH }, hu, hv)) {
             state.hover.active    = true;
             state.hover.origin    = slot.nodePos;
-            state.hover.direction = CylindricalEqualArea::toDirection(hu, hv);
+            state.hover.direction = parameterSpacePixelToDirection(state.flags.paramSpace, hu, hv);
             ImGui::BeginTooltip();
             ImGui::Text("UV:(%.3f,%.3f)", hu, hv);
             ImGui::EndTooltip();
@@ -165,7 +174,7 @@ void renderDirectionalPanel(SDTreeViewer& viewer) {
             } else {
                 bool canInspect = !(slot.dirType == BTC && state.slotTiling[si] < 0);
                 float cu, cv;
-                if (canInspect && viewer.heatmapUV(imgPos, { hmSide, hmSide }, cu, cv)) {
+                if (canInspect && viewer.heatmapUV(imgPos, { drawW, drawH }, cu, cv)) {
                     viewer.inspectBin(si, cu, cv);
                 }
             }
@@ -173,15 +182,15 @@ void renderDirectionalPanel(SDTreeViewer& viewer) {
 
         ImGui::SameLine();
         ImGui::Image((ImTextureID)(intptr_t)viewer.slotCbar[si].handle(),
-                     { cbarW, hmSide }, { 0, 1 }, { 1, 0 });
+                     { cbarW, drawH }, { 0, 1 }, { 1, 0 });
         ImGui::SameLine();
         ImGui::BeginGroup();
 
         char lb[32];
         std::snprintf(lb, 32, "%.1e", slot.vMax); ImGui::Text("%s", lb);
-        ImGui::Dummy({ 0, hmSide / 2 - 20 });
+        ImGui::Dummy({ 0, drawH / 2 - 20 });
         std::snprintf(lb, 32, "%.1e", std::sqrt(slot.vMin * slot.vMax)); ImGui::Text("%s", lb);
-        ImGui::Dummy({ 0, hmSide / 2 - 20 });
+        ImGui::Dummy({ 0, drawH / 2 - 20 });
         std::snprintf(lb, 32, "%.1e", slot.vMin); ImGui::Text("%s", lb);
         ImGui::EndGroup();
 

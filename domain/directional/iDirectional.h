@@ -1,6 +1,7 @@
 #pragma once
 
 #include "dirKind.h"
+#include "parameterSpace.h"
 #include "../../globals/config.h"
 #include "../blobReader.h"
 
@@ -17,6 +18,9 @@ public:
     virtual ~IDirectional() = default; 
 
     virtual DirKind kind() const = 0;
+
+    /// @brief Parameter space the leaves/evalPDF of this structure are expressed in.
+    virtual ParameterSpace defaultSpace() const { return ParameterSpace::Quadtree; }
 
     /// @brief Mean radiance over the directional domain.
     virtual float  getMean() const = 0;

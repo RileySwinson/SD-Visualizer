@@ -99,6 +99,18 @@ namespace CylindricalEqualArea {
         return { sinTheta * cosf(phi), cosTheta, sinTheta * sinf(phi) };
     }
 
+    /**
+     * @brief Inverse of @ref toDirection : unit direction to @c (u, v) .
+     * @param d Unit-length direction vector.
+     * @return @c (u, v) with @c v the equal-area polar coordinate.
+     */
+    inline Eigen::Vector2f fromDirection(const Eigen::Vector3f& d) {
+        float u = atan2f(d.z(), d.x()) / (2.f * (float)M_PI);
+        if (u < 0.f) u += 1.f;
+        float v = std::clamp((1.f - d.y()) * 0.5f, 0.f, 1.f);
+        return { u, v };
+    }
+
     /// @brief Total solid angle of the unit sphere, \f$4\pi\f$ steradians.
     inline constexpr float SOLID_ANGLE_FACTOR = 4.0f * (float)M_PI;
 }

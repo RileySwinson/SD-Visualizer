@@ -17,36 +17,33 @@
  */
 namespace PFMExport {
 
-    template<int RES>
-    bool exportGrayscalePFM(
-        const char* filename,
-        const float grid[RES][RES],
-        float& outMin,
-        float& outMax
+    // Row-major @p data of size @p w * @p h, row 0 = bottom scanline.
+    inline bool exportGrayscalePFM(
+        const char*  filename,
+        const float* data,
+        int          w,
+        int          h,
+        float&       outMin,
+        float&       outMax
     ) {
-        float vMin = grid[0][0], vMax = grid[0][0];
-        for (int y = 0; y < RES; ++y)
-            for (int x = 0; x < RES; ++x) {
-                vMin = std::min(vMin, grid[y][x]);
-                vMax = std::max(vMax, grid[y][x]);
-            }
+        float vMin = data[0], vMax = data[0];
+        for (int i = 0; i < w * h; ++i) {
+            vMin = std::min(vMin, data[i]);
+            vMax = std::max(vMax, data[i]);
+        }
         outMin = vMin;
         outMax = vMax;
-
-        // float scale = (vMax > 0.0f) ? (1.0f / vMax) : 1.0f;
 
         FILE* result = std::fopen(filename, "wb");
         if (!result) return false;
 
-        if (std::fprintf(result, "Pf\n%d %d\n-1.0\n", RES, RES) < 0) {
+        if (std::fprintf(result, "Pf\n%d %d\n-1.0\n", w, h) < 0) {
             std::fclose(result);
             return false;
         }
 
-        // float row[RES];
-        for (int y = 0; y < RES; ++y) {
-            // for (int x = 0; x < RES; ++x) row[x] = grid[y][x] * scale;
-            if (std::fwrite(grid[y], sizeof(float), RES, result) != (size_t)RES) {
+        for (int y = 0; y < h; ++y) {
+            if (std::fwrite(data + (size_t)y * w, sizeof(float), w, result) != (size_t)w) {
                 std::fclose(result);
                 return false;
             }

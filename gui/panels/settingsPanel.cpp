@@ -2,6 +2,7 @@
 
 #include "../../viewer/sdtreeViewer.h"
 #include "../../globals/uiColors.h"
+#include "../../domain/directional/parameterSpace.h"
 
 #include <imgui.h>
 
@@ -28,6 +29,40 @@ void renderSettingsPanel(SDTreeViewer& viewer) {
                 viewer.enterIterationMode(seqGroups[0]);
             }
         }
+    }
+    ImGui::Separator();
+
+    ImGui::TextColored(COL_TEXT, "Directional space:");
+    ImGui::SetNextItemWidth(-1);
+    if (ImGui::BeginCombo("##paramSpace", parameterSpaceName(state.flags.paramSpace))) {
+        for (ParameterSpace ps : { ParameterSpace::Quadtree,
+                                   ParameterSpace::BTC,
+                                   ParameterSpace::Spherical }) {
+            bool sel = (state.flags.paramSpace == ps);
+            if (ImGui::Selectable(parameterSpaceName(ps), sel) && !sel) {
+                state.flags.paramSpace = ps;
+                viewer.updateHeatmaps();
+            }
+            if (sel) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+    if (state.flags.paramSpace == ParameterSpace::Spherical)
+        ImGui::TextColored({ 0.5f, 0.5f, 0.5f, 1 },
+            "2:1 lat-long, matches Mitsuba spherical sensor");
+
+    ImGui::TextColored(COL_TEXT, "Heatmap scale:");
+    ImGui::SetNextItemWidth(-1);
+    if (ImGui::BeginCombo("##heatScale", heatmapScaleName(state.flags.heatmapScale))) {
+        for (HeatmapScale hs : { HeatmapScale::FromZero, HeatmapScale::AutoRange }) {
+            bool sel = (state.flags.heatmapScale == hs);
+            if (ImGui::Selectable(heatmapScaleName(hs), sel) && !sel) {
+                state.flags.heatmapScale = hs;
+                viewer.updateHeatmaps();
+            }
+            if (sel) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
     }
     ImGui::Separator();
 
@@ -149,6 +184,14 @@ void renderSettingsPanel(SDTreeViewer& viewer) {
         ImGui::TextColored(COL_PURPLE, "Cell B:");
         ImGui::SetNextItemWidth(-1); ImGui::InputFloat3("##cB", state.cellBXYZ.data(), "%.3f");
         if (ImGui::Button("Go##B", { -1, 0 })) viewer.goToCellB();
+
+        bool oneCellSelected = state.isMode<NormalState>()
+                            && state.getSelectedCellA() >= 0
+                            && state.getSelectedCellB() < 0;
+        if (!oneCellSelected) ImGui::BeginDisabled();
+        if (ImGui::Button("Export Spherical Camera", { -1, 0 })) viewer.exportSphericalCamera();
+        if (!oneCellSelected) ImGui::EndDisabled();
+
         ImGui::Separator();
     }
 

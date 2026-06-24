@@ -50,11 +50,15 @@ struct Bounds2i {
     int maxB;
 
     static Bounds2i fromBounds2f(const Bounds2f& b, int resolution) {
+        return fromBounds2f(b, resolution, resolution);
+    }
+
+    static Bounds2i fromBounds2f(const Bounds2f& b, int w, int h) {
         return {
-            std::max(0, (int)(b.minA * resolution)),
-            std::max(0, (int)(b.minB * resolution)),
-            std::min(resolution, (int)(b.maxA * resolution)),
-            std::min(resolution, (int)(b.maxB * resolution))
+            std::max(0, (int)(b.minA * w)),
+            std::max(0, (int)(b.minB * h)),
+            std::min(w, (int)(b.maxA * w)),
+            std::min(h, (int)(b.maxB * h))
         };
     }
 

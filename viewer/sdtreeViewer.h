@@ -103,6 +103,7 @@ public:
     std::vector<int> getSequenceGroups() const;
     std::vector<int> getGroupMembers(int groupIdx) const;
     void  exportSlotHeatmap(int slotIndex);
+    void  exportSphericalCamera();
 
     // Per-frame entry points.
     void renderUI(GLFWwindow* win, int winW, int winH);
